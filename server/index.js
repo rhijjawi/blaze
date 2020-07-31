@@ -2,6 +2,7 @@ import express from 'express';
 import http from 'http';
 import WebSocket from 'ws';
 import cors from 'cors';
+import shortid from 'shortid';
 
 import Socket from '../common/utils/socket';
 import Room from '../common/utils/room';
@@ -21,13 +22,14 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ noServer: true });
 const rooms = {};
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, request) => {
   ws.isAlive = true;
-  const socket = new Socket(ws);
+  const ip = request.connection.remoteAddress;
+  const socket = new Socket(ws, ip);
   let room;
   
   socket.listen(constants.JOIN, (data) => {
-    const { roomName, name, peerId } = data;
+    const { roomName = socket.ip, name, peerId } = data;
     socket.name = name;
     socket.peerId = peerId;
 
@@ -62,7 +64,7 @@ wss.on('connection', (ws) => {
     if (Array.isArray(sockets)) {
       if (sockets.length) {
         room.broadcast(constants.USER_LEAVE, socket.name, [ socket.name ]);
-      } else {
+      } else if (!room.watchers.length) {
         delete rooms[room.name];
       }
     }
@@ -151,6 +153,38 @@ server.on('upgrade', (request, socket, head) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  log(`listening on *:${PORT}`);
+app.get('/local-peers', (req, res) => {
+  const { ip } = req;
+  const headers = {
+    'Content-Type': 'text/event-stream',
+    Connection: 'keep-alive',
+    'Cache-Control': 'no-cache',
+  };
+  res.writeHead(200, headers);
+
+  const watcher = { id: shortid.generate(), res };
+
+  if (!rooms[ip]) {
+    rooms[ip] = new Room(ip);
+  } else {
+    rooms[ip].addWatcher(watcher);
+  }
+
+  rooms[ip].informWatchers([ watcher ]);
+
+  req.on('close', () => {
+    const room = rooms[ip];
+    if (!room) return;
+
+    room.removeWatcher(watcher);
+
+    if (!room.watchers.length && !room.socketsData.length) {
+      delete rooms[ip];
+    }
+  });
+});
+
+const port = process.env.PORT || 3030;
+server.listen(port, '0.0.0.0', () => {
+  log(`listening on *:${port}`);
 });
