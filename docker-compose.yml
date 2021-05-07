@@ -12,9 +12,6 @@ services:
       dockerfile: ./client/Dockerfile
       args:
         TORRENT_SIZE_LIMIT: 300000000000
-        WS_SIZE_LIMIT: 100000000
-        SERVER_HOST: 0.0.0.0
-        WS_HOST: 0.0.0.0
     ports:
       - 80:80
     depends_on:
